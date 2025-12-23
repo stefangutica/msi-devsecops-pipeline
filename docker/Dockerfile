@@ -35,9 +35,12 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install security updates and curl for health checks
+# Install security updates, curl, and dumb-init
+# FIX: Installed dumb-init and created a symlink to /sbin/dumb-init to fix the error
 RUN apk update && apk add --no-cache \
     curl \
+    dumb-init \
+    && ln -s /usr/bin/dumb-init /sbin/dumb-init \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user for security
@@ -62,7 +65,10 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 3000
 
-# Start application directly (Alpine handles signals properly)
+# FIX: Explicitly set Entrypoint to use dumb-init
+ENTRYPOINT ["/sbin/dumb-init", "--"]
+
+# Start application
 CMD ["node", "dist/main.js"]
 
 # Build metadata
