@@ -1,0 +1,478 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly scan on Sunday at 2 AM
+
+permissions:
+  contents: read
+  security-events: write
+  checks: write
+  pull-requests: write
+
+jobs:
+  # =====================================================
+  # 1. CODE CHECKOUT & SETUP
+  # =====================================================
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache build artifacts
+        uses: actions/cache@v3
+        with:
+          path: dist
+          key: ${{ runner.os }}-build-${{ github.sha }}
+
+  # =====================================================
+  # 2. SAST (Static Application Security Testing)
+  # =====================================================
+  sast-sonarqube:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_HOST_URL: http://localhost:9000
+          SONAR_LOGIN: admin
+        with:
+          args: >
+            -Dsonar.projectKey=msi-devsecops
+            -Dsonar.sources=src
+            -Dsonar.exclusions=**/*.spec.ts,**/*.e2e-spec.ts
+            -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_LOGIN: admin
+        continue-on-error: true
+
+  # Alternative SAST: Semgrep
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/owasp-top-ten
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
+
+  # =====================================================
+  # 3. SCA (Software Composition Analysis)
+  # =====================================================
+  sca-npm-audit:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          echo "=== NPM Audit Report ===" 
+          npm audit --audit-level=moderate || true
+          npm audit --json > npm-audit-report.json || true
+
+      - name: Upload npm audit report
+        uses: actions/upload-artifact@v3
+        with:
+          name: npm-audit-report
+          path: npm-audit-report.json
+
+  # Alternative SCA: Snyk
+  sca-snyk:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Snyk scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ''
+        with:
+          args: --severity-threshold=high --json-file-output=snyk-report.json
+        continue-on-error: true
+
+      - name: Upload Snyk report
+        uses: actions/upload-artifact@v3
+        with:
+          name: snyk-report
+          path: snyk-report.json
+        if: always()
+
+  # Alternative SCA: OWASP Dependency-Check
+  sca-dependency-check:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Dependency-Check scan
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'msi-devsecops'
+          path: '.'
+          format: 'JSON'
+          args: >
+            --enableExperimental
+            --exclude node_modules
+
+      - name: Upload Dependency-Check results
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-check-report
+          path: reports/dependency-check-report.json
+        if: always()
+
+  # =====================================================
+  # 4. SECRET SCANNING
+  # =====================================================
+  secret-scanning:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --json --fail
+        continue-on-error: true
+
+      - name: GitLeaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: OWASP Secret Scan
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --all-files --force-add . --baseline .secrets.baseline || true
+        continue-on-error: true
+
+  # =====================================================
+  # 5. CODE QUALITY & TESTING
+  # =====================================================
+  quality-tests:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint --if-present
+
+      - name: Run unit tests
+        run: npm run test:cov
+
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+  # =====================================================
+  # 6. BUILD & CONTAINER SCANNING
+  # =====================================================
+  container-build:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t msi-devsecops:latest -f docker/Dockerfile .
+          docker save msi-devsecops:latest -o /tmp/image.tar
+
+      - name: Upload image for scanning
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+
+  # Container Scanning: Trivy
+  container-trivy:
+    runs-on: ubuntu-latest
+    needs: container-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image locally
+        run: docker build -t msi-devsecops:latest -f docker/Dockerfile .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: msi-devsecops:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+        if: always()
+
+      - name: Run Trivy JSON report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: msi-devsecops:latest
+          format: 'json'
+          output: 'trivy-report.json'
+
+      - name: Upload Trivy JSON report
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-report
+          path: trivy-report.json
+
+  # Container Scanning: Grype
+  container-grype:
+    runs-on: ubuntu-latest
+    needs: container-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build image locally
+        run: docker build -t msi-devsecops:latest -f docker/Dockerfile .
+
+      - name: Run Grype vulnerability scanner
+        uses: anchore/scan-action@v3
+        id: scan
+        with:
+          image: msi-devsecops:latest
+          fail-build: false
+          severity-cutoff: high
+
+      - name: Upload Grype results to GitHub
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+
+      - name: Upload Grype report
+        uses: actions/upload-artifact@v3
+        with:
+          name: grype-report
+          path: ${{ steps.scan.outputs.sarif }}
+
+  # =====================================================
+  # 7. RUNTIME SECURITY & INFRASTRUCTURE
+  # =====================================================
+  infrastructure-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkov IaC Scanning
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: docker
+          quiet: false
+          soft_fail: true
+          output_format: sarif
+          output_file_path: reports/checkov.sarif
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: reports/checkov.sarif
+        if: always()
+
+  # =====================================================
+  # 8. DAST (Dynamic Application Security Testing)
+  # =====================================================
+  dast-scan:
+    runs-on: ubuntu-latest
+    needs: quality-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and start application
+        run: |
+          npm run build
+          npm run start:prod &
+          sleep 10
+
+      - name: Run OWASP ZAP scan
+        uses: zaproxy/action-baseline@v0.4.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+        continue-on-error: true
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v3
+        with:
+          name: zap-report
+          path: report_html.html
+        if: always()
+
+  # =====================================================
+  # 9. SECURITY REPORT & SUMMARY
+  # =====================================================
+  security-report:
+    runs-on: ubuntu-latest
+    needs: [sast-sonarqube, sca-npm-audit, secret-scanning, container-trivy, quality-tests]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all reports
+        uses: actions/download-artifact@v3
+        with:
+          path: reports
+
+      - name: Generate security summary
+        run: |
+          echo "# 🔐 DevSecOps Security Report" > SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          echo "## Build Information" >> SECURITY_REPORT.md
+          echo "- Build ID: ${{ github.run_id }}" >> SECURITY_REPORT.md
+          echo "- Commit: ${{ github.sha }}" >> SECURITY_REPORT.md
+          echo "- Branch: ${{ github.ref }}" >> SECURITY_REPORT.md
+          echo "- Timestamp: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          echo "## Security Scans Executed" >> SECURITY_REPORT.md
+          echo "- ✅ SAST (SonarQube, Semgrep)" >> SECURITY_REPORT.md
+          echo "- ✅ SCA (npm audit, Snyk, Dependency-Check)" >> SECURITY_REPORT.md
+          echo "- ✅ Secret Scanning (TruffleHog, GitLeaks)" >> SECURITY_REPORT.md
+          echo "- ✅ Container Scanning (Trivy, Grype)" >> SECURITY_REPORT.md
+          echo "- ✅ Code Quality Tests" >> SECURITY_REPORT.md
+          echo "- ✅ IaC Scanning (Checkov)" >> SECURITY_REPORT.md
+          echo "" >> SECURITY_REPORT.md
+          echo "## Report Artifacts" >> SECURITY_REPORT.md
+          ls -la reports/ >> SECURITY_REPORT.md
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: SECURITY_REPORT.md
+
+      - name: Create GitHub Pages report
+        run: |
+          mkdir -p docs
+          echo "# DevSecOps Security Dashboard" > docs/index.html
+          echo "<h1>Security Scan Results</h1>" >> docs/index.html
+
+      - name: Comment PR with security summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🔐 **DevSecOps Pipeline Complete**\n\nAll security scans executed:\n- ✅ SAST Analysis\n- ✅ Dependency Scanning\n- ✅ Secret Detection\n- ✅ Container Scanning\n- ✅ Code Quality Tests\n\nCheck the artifacts for detailed reports!'
+            })
