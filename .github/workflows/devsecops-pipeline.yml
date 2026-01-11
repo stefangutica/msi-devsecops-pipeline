@@ -21,7 +21,7 @@ jobs:
   # =====================================================
   sast-sonarqube:
     runs-on: ubuntu-latest
-    if: false  # Disabled - requires SonarQube Cloud or self-hosted server with SONAR_TOKEN secret
+    if: false  # Disabled - requires SonarQube Cloud or self-hosted server
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -111,7 +111,6 @@ jobs:
   # Alternative SCA: Snyk
   sca-snyk:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SNYK_TOKEN != '' }}  # Only run if SNYK_TOKEN is configured
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -127,6 +126,8 @@ jobs:
 
       - name: Run Snyk scan
         uses: snyk/actions/node@master
+        # FIX 2: Verificarea secretului se face aici, la nivel de step
+        if: ${{ secrets.SNYK_TOKEN != '' }}
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -135,11 +136,10 @@ jobs:
 
       - name: Upload Snyk report
         uses: actions/upload-artifact@v4
+        if: always() && steps.snyk-scan.outcome != 'skipped' 
         with:
           name: snyk-report
           path: snyk-report.json
-        if: always()
-    secrets: inherit
 
   # Alternative SCA: OWASP Dependency-Check
   sca-dependency-check:
@@ -197,8 +197,6 @@ jobs:
           pip install detect-secrets
           detect-secrets scan --all-files --force-add . --baseline .secrets.baseline || true
         continue-on-error: true
-    secrets: inherit
-
   # =====================================================
   # 5. CODE QUALITY & TESTING
   # =====================================================
