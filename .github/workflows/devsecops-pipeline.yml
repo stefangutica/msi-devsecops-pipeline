@@ -7,6 +7,7 @@ on:
     branches: [ main, development ]
   schedule:
     - cron: '0 2 * * 0'  # Weekly scan on Sunday at 2 AM
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -138,6 +139,7 @@ jobs:
           name: snyk-report
           path: snyk-report.json
         if: always()
+    secrets: inherit
 
   # Alternative SCA: OWASP Dependency-Check
   sca-dependency-check:
@@ -195,6 +197,7 @@ jobs:
           pip install detect-secrets
           detect-secrets scan --all-files --force-add . --baseline .secrets.baseline || true
         continue-on-error: true
+    secrets: inherit
 
   # =====================================================
   # 5. CODE QUALITY & TESTING
