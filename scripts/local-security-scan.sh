@@ -50,7 +50,7 @@ echo ""
 # 4. Semgrep - SAST
 echo -e "${YELLOW}[4/6] Running Semgrep (SAST)...${NC}"
 if command -v semgrep &> /dev/null; then
-    semgrep --config=p/owasp-top-ten --json -o reports/semgrep-report.json . || true
+    semgrep scan --config=p/owasp-top-ten --json-output=reports/semgrep-report.json src || true
     echo -e "${GREEN}✅ Semgrep scan complete. Report: reports/semgrep-report.json${NC}"
 else
     echo -e "${YELLOW}⚠️  Semgrep not installed. Install: pip install semgrep${NC}"
