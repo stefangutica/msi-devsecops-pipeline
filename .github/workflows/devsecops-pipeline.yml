@@ -126,8 +126,6 @@ jobs:
 
       - name: Run Snyk scan
         uses: snyk/actions/node@master
-        # FIX 2: Verificarea secretului se face aici, la nivel de step
-        if: ${{ secrets.SNYK_TOKEN != '' }}
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
