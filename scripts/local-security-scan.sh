@@ -40,10 +40,10 @@ echo ""
 # 3. TruffleHog - Secret Scanning
 echo -e "${YELLOW}[3/6] Running TruffleHog (Secret Scanning)...${NC}"
 if command -v trufflehog &> /dev/null; then
-    trufflehog filesystem . --json > reports/trufflehog-report.json 2>&1 || true
+    trufflehog --json . > reports/trufflehog-report.json 2>&1 || true
     echo -e "${GREEN}✅ TruffleHog scan complete. Report: reports/trufflehog-report.json${NC}"
 else
-    echo -e "${YELLOW}⚠️  TruffleHog not installed. Install: pip install truffleHog${NC}"
+    echo -e "${YELLOW}⚠️  TruffleHog not installed. Run: bash scripts/install-tools.sh${NC}"
 fi
 echo ""
 

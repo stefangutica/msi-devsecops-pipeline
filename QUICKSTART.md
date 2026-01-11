@@ -18,6 +18,7 @@ npm install
 ### 2️⃣ Install Security Tools (2 min)
 ```bash
 npm run security:install-tools
+snyk auth
 ```
 
 ### 3️⃣ Start DevSecOps Stack (1 min)
