@@ -17,7 +17,15 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "security:install-tools": "bash scripts/install-tools.sh",
+    "security:setup-env": "bash scripts/setup-env.sh",
+    "security:cleanup-env": "bash scripts/cleanup-env.sh",
+    "security:scan-local": "bash scripts/local-security-scan.sh",
+    "security:audit": "npm audit --audit-level=moderate",
+    "docker:build": "docker build -t msi-devsecops:latest -f docker/Dockerfile .",
+    "docker:scan": "trivy image msi-devsecops:latest",
+    "docker:run": "docker run -p 3000:3000 msi-devsecops:latest"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

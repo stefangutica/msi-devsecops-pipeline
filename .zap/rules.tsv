@@ -1,0 +1,19 @@
+# Global rules for ZAP baseline scan
+# Format: rule_id|alert_title|url_regex|param_regex|attack|evidence|confidence
+
+# OWASP Top 10 2021 focus areas
+# A01:2021 – Broken Access Control
+40016|Missing HTTP TRACE method|.*|.*|.*|.*|.*
+
+# A02:2021 – Cryptographic Failures
+10041|Cookie without Secure Flag|.*|.*|.*|.*|.*
+10043|Cookie without HttpOnly Flag|.*|.*|.*|.*|.*
+
+# A03:2021 – Injection
+20014|HTTP Parameter Pollution|.*|.*|.*|.*|.*
+
+# A05:2021 – Broken Access Control
+40014|Cross-Site Request Forgery (CSRF)|.*|.*|.*|.*|.*
+
+# A06:2021 – Vulnerable and Outdated Components
+50001|Script Served from Untrusted Domain|.*|.*|.*|.*|.*
